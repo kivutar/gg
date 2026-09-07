@@ -52,7 +52,7 @@ func TestGSUB_Ligatures_NotoSerif(t *testing.T) {
 
 // TestGSUB_Ligatures_TimesNewRoman verifies fi/fl ligatures for Times New Roman.
 // Times New Roman places Latin fi/fl under 'dlig' (discretionary ligatures)
-// rather than 'liga'. Our shaper enables 'dlig' by default to handle this.
+// rather than 'liga', so the test enables them explicitly.
 //
 // Skipped on CI (system font not available).
 func TestGSUB_Ligatures_TimesNewRoman(t *testing.T) {
@@ -68,7 +68,7 @@ func TestGSUB_Ligatures_TimesNewRoman(t *testing.T) {
 	defer func() { _ = source.Close() }()
 
 	shaper := NewOwnShaper()
-	face := source.Face(16.0)
+	face := source.Face(16.0, WithFeatures(NewFontFeature("dlig", 1)))
 
 	tests := []struct {
 		name    string
@@ -139,7 +139,7 @@ func TestGSUB_NoDLigatures(t *testing.T) {
 
 	// With dlig disabled, Times New Roman fi should stay as 2 glyphs
 	// (since Times New Roman places fi under 'dlig' for Latin).
-	face := source.Face(16.0, WithFeatures(NoDLigatures))
+	face := source.Face(16.0, WithFeatures(NewFontFeature("dlig", 1), NoDLigatures))
 	result := shaper.Shape("fi", face)
 	if len(result) != 2 {
 		t.Errorf("Shape(\"fi\") with NoDLigatures on Times New Roman: got %d glyphs, want 2", len(result))
@@ -150,13 +150,13 @@ func TestGSUB_NoDLigatures(t *testing.T) {
 func TestGSUB_DefaultFeatures(t *testing.T) {
 	gsubTags, gposTags := collectDesiredFeatures(nil)
 
-	// GSUB must include ccmp, liga, clig, rlig, dlig.
+	// GSUB must include required and standard features, but not discretionary
+	// ligatures.
 	wantGSUB := map[[4]byte]bool{
 		{'c', 'c', 'm', 'p'}: true,
 		{'l', 'i', 'g', 'a'}: true,
 		{'c', 'l', 'i', 'g'}: true,
 		{'r', 'l', 'i', 'g'}: true,
-		{'d', 'l', 'i', 'g'}: true,
 	}
 	gotGSUB := make(map[[4]byte]bool, len(gsubTags))
 	for _, tag := range gsubTags {
@@ -166,6 +166,9 @@ func TestGSUB_DefaultFeatures(t *testing.T) {
 		if !gotGSUB[tag] {
 			t.Errorf("default GSUB features missing '%s'", string(tag[:]))
 		}
+	}
+	if gotGSUB[[4]byte{'d', 'l', 'i', 'g'}] {
+		t.Error("default GSUB features unexpectedly enable discretionary ligatures")
 	}
 
 	// GPOS must include kern.
@@ -202,4 +205,15 @@ func TestGSUB_FeatureDisable(t *testing.T) {
 			t.Error("NoDLigatures should remove 'dlig' from GSUB features")
 		}
 	}
+}
+
+func TestGSUB_DiscretionaryLigaturesCanBeEnabled(t *testing.T) {
+	gsubTags, _ := collectDesiredFeatures([]FontFeature{NewFontFeature("dlig", 1)})
+	dligTag := [4]byte{'d', 'l', 'i', 'g'}
+	for _, tag := range gsubTags {
+		if tag == dligTag {
+			return
+		}
+	}
+	t.Error("explicit dlig feature was not enabled")
 }

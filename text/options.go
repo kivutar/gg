@@ -44,10 +44,8 @@ var (
 	NoLigatures = FontFeature{Tag: [4]byte{'l', 'i', 'g', 'a'}, Value: 0}
 
 	// NoDLigatures disables discretionary ligatures.
-	// Some fonts (e.g. Times New Roman) place fi/fl ligatures under 'dlig'
-	// rather than 'liga'. The shaper enables 'dlig' by default for
-	// compatibility. Use this constant to disable discretionary ligatures
-	// when strict HarfBuzz-compatible behavior is needed.
+	// Discretionary ligatures are opt-in by default, but this can be used to
+	// override a style or earlier feature setting that enabled them.
 	NoDLigatures = FontFeature{Tag: [4]byte{'d', 'l', 'i', 'g'}, Value: 0}
 
 	// Kerning enables kerning (pair-wise glyph spacing adjustment).
