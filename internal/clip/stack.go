@@ -270,10 +270,12 @@ func (cs *ClipStack) RasterizedMask() CoverageMask {
 	cache.once.Do(func() {
 		bounds := cs.bounds
 		mask := &cache.mask
-		mask.Width = int(bounds.W + 0.5)
-		mask.Height = int(bounds.H + 0.5)
 		mask.OriginX = int(bounds.X)
 		mask.OriginY = int(bounds.Y)
+		// Round the endpoints as the software renderer does. Rounding the
+		// size alone can drop the last row/column when the origin is fractional.
+		mask.Width = int(bounds.Right()+0.5) - mask.OriginX
+		mask.Height = int(bounds.Bottom()+0.5) - mask.OriginY
 		if mask.Width > 0 && mask.Height > 0 {
 			mask.Pixels = make([]uint8, mask.Width*mask.Height)
 			for py := 0; py < mask.Height; py++ {

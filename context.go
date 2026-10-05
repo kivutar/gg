@@ -593,8 +593,10 @@ func (c *Context) FillRectCPU(x, y, w, h float64, col RGBA) {
 	tl := ctm.TransformPoint(Pt(x, y))
 	br := ctm.TransformPoint(Pt(x+w, y+h))
 
-	px0 := int(tl.X)
-	py0 := int(tl.Y)
+	// Round both edges consistently, including after a device-scale round trip.
+	// Truncating a value such as 148.99999999999997 clears an extra pixel.
+	px0 := int(math.Round(tl.X))
+	py0 := int(math.Round(tl.Y))
 	px1 := int(br.X + 0.5)
 	py1 := int(br.Y + 0.5)
 
