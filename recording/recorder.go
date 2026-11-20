@@ -193,14 +193,10 @@ func (r *Recording) Playback(backend Backend) error {
 			backend.DrawImage(img, c.SrcRect, c.DstRect, c.Options)
 		case DrawTextCommand:
 			brush := r.resources.GetBrush(c.Brush)
-			// Font face lookup would need additional handling
-			backend.DrawText(c.Text, c.X, c.Y, nil, brush)
+			backend.DrawText(c.Text, c.X, c.Y, c.Face, brush)
 		case StrokeTextCommand:
 			brush := r.resources.GetBrush(c.Brush)
-			// StrokeText is recorded as a stroke text command.
-			// Backends that support text stroking can use the stroke style;
-			// others fall back to DrawText (fill) as an approximation.
-			backend.DrawText(c.Text, c.X, c.Y, nil, brush)
+			backend.DrawText(c.Text, c.X, c.Y, c.Face, brush)
 		// Style commands are handled by the backend's internal state
 		// during the actual drawing operations
 		case SetFillStyleCommand, SetStrokeStyleCommand,
@@ -1137,28 +1133,43 @@ func (r *Recorder) SetFontFamily(family string) {
 	r.fontFamily = family
 }
 
-// DrawString draws text at position (x, y) where y is the baseline.
-func (r *Recorder) DrawString(s string, x, y float64) {
-	// Transform position
-	px, py := r.transform.TransformPoint(x, y)
+// transformScale returns the uniform scale factor from the current CTM.
+// Used to scale font size into world space (matching pre-transformed positions).
+func (r *Recorder) transformScale() float64 {
+	return math.Sqrt(r.transform.A*r.transform.A + r.transform.B*r.transform.B)
+}
 
+// DrawString draws text at position (x, y) where y is the baseline.
+// Position is transformed to world space. Font size is scaled by the CTM's
+// scale factor so that playback in identity space renders at the correct size
+// (matching how positions are pre-transformed).
+func (r *Recorder) DrawString(s string, x, y float64) {
+	px, py := r.transform.TransformPoint(x, y)
 	brushRef := r.resources.AddBrush(r.fillBrush)
 
 	r.commands = append(r.commands, DrawTextCommand{
 		Text:       s,
 		X:          px,
 		Y:          py,
-		FontSize:   r.fontSize,
+		FontSize:   r.fontSize * r.transformScale(),
 		FontFamily: r.fontFamily,
+		Face:       r.fontFace,
 		Brush:      brushRef,
 	})
 }
 
 // DrawStringAnchored draws text with an anchor point.
-// The anchor point is specified by ax and ay, which are in the range [0, 1].
+// The anchor offset is computed at record time using text.Measure + face metrics,
+// matching Context.DrawStringAnchored exactly. The final baseline position is
+// stored in the command (Skia SkTextBlob pattern — pre-positioned glyphs).
 func (r *Recorder) DrawStringAnchored(s string, x, y, ax, ay float64) {
-	// For recording, we store the base position and let the backend handle anchoring
-	// This is a simplification; a full implementation would measure text
+	if r.fontFace != nil && (ax != 0 || ay != 0) {
+		w, _ := text.Measure(s, r.fontFace)
+		metrics := r.fontFace.Metrics()
+		h := metrics.Ascent + metrics.Descent
+		x -= w * ax
+		y = y + metrics.Ascent - ay*h
+	}
 	r.DrawString(s, x, y)
 }
 
@@ -1182,18 +1193,24 @@ func (r *Recorder) StrokeString(s string, x, y float64) {
 		Text:       s,
 		X:          px,
 		Y:          py,
-		FontSize:   r.fontSize,
+		FontSize:   r.fontSize * r.transformScale(),
 		FontFamily: r.fontFamily,
+		Face:       r.fontFace,
 		Brush:      brushRef,
 		Stroke:     stroke,
 	})
 }
 
 // StrokeStringAnchored strokes text outlines with an anchor point.
-// The anchor point is specified by ax and ay, which are in the range [0, 1].
+// Anchor offset computed at record time, same as DrawStringAnchored.
 func (r *Recorder) StrokeStringAnchored(s string, x, y, ax, ay float64) {
-	// For recording, we store the base position and let the backend handle anchoring
-	// This is a simplification; a full implementation would measure text
+	if r.fontFace != nil && (ax != 0 || ay != 0) {
+		w, _ := text.Measure(s, r.fontFace)
+		metrics := r.fontFace.Metrics()
+		h := metrics.Ascent + metrics.Descent
+		x -= w * ax
+		y = y + metrics.Ascent - ay*h
+	}
 	r.StrokeString(s, x, y)
 }
 

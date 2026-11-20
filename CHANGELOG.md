@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.5] - 2026-08-26
+
+### Fixed
+
+- **Raster backend device scale preserved across draw operations** — `FillRect`,
+  `setPath`, `SetClip`, and `SetTransform` called `ctx.Identity()` which reset the
+  device `Scale(2,2)` set in `Begin()`. At 2x scale, content rendered in the
+  top-left quadrant only (25% coverage). Fix: `applyDeviceScale()` replaces
+  `Identity()` (Skia `fInitialCTM` pattern). `SetTransform` now composes device
+  scale with recorded transform.
+
+- **Recording DrawStringAnchored anchor offset** — `Recorder.DrawStringAnchored`
+  and `StrokeStringAnchored` ignored `ax`/`ay` anchor parameters entirely. Text
+  was drawn at raw `(x,y)` without offset. Fix: compute anchor offset at record
+  time using `text.Measure` + face metrics, matching `Context.DrawStringAnchored`
+  exactly (Skia pre-positioned `SkTextBlob` pattern). Pixel-perfect parity verified.
+
+## [0.52.4] - 2026-08-25
+
+### Fixed
+
+- **Recording raster backend: DrawText now renders text** — `DrawText` was a
+  no-op because the font face was not stored in commands. Now `DrawTextCommand`
+  carries `text.Face` (Go GC keeps font alive, matching Skia `sk_sp<SkTextBlob>`
+  / Cairo `cairo_scaled_font_reference` pattern). Font size is scaled by the CTM
+  at record time so playback in identity space renders at the correct size.
+
+- **Recording raster backend: HiDPI scale support** — `NewBackendWithScale(scale)`
+  creates an enlarged pixel buffer with uniform scale transform at playback time
+  (matching Skia `fInitialCTM` composition / Cairo `replay_with_transform`).
+
+- **Text-outline glyph cache collision between font faces** ([#514](https://github.com/gogpu/gg/pull/514), @kivutar) —
+  Font IDs now include the full face name, preventing regular and bold faces
+  in the same family from sharing cached outlines. Font ID computation unified
+  into `text.ComputeFontID` — single source of truth for CPU, MSDF, and glyph
+  mask pipelines.
+
+### Removed
+
+- **Dead `internal/gpucore` abstraction layer** ([#518](https://github.com/gogpu/gg/issues/518)) —
+  Removed ~1,740 LOC of orphaned code (`gpucore/` package + `HALAdapter`).
+  Planned as GPU abstraction for Vello compute but never adopted — production
+  uses `*wgpu.Device`/`*wgpu.Queue` directly (Vello pattern).
+
+### Changed
+
+- deps: wgpu v0.31.4 → v0.31.6
+
 ## [0.52.3] - 2026-08-13
 
 ### Added

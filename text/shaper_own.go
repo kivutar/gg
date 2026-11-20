@@ -278,14 +278,9 @@ func runeToGlyphs(runes []rune, sc *ownShaperCache) []shapingGlyph {
 // collectDesiredFeatures determines which GSUB and GPOS feature tags to apply.
 // User features can enable/disable individual features.
 //
-// Default GSUB features: ccmp, liga, clig, rlig, dlig.
-//
-// Why 'dlig': Some major fonts (e.g. Times New Roman) place standard Latin
-// ligatures (fi, fl, ffi) under 'dlig' rather than 'liga'. Without 'dlig',
-// these common ligatures would not be applied. Microsoft DirectWrite and
-// most desktop applications enable these ligatures by default.
-// Users who want strictly HarfBuzz-compatible behavior can disable 'dlig'
-// explicitly with text.NoDLigatures.
+// Default GSUB features: ccmp, liga, clig, rlig. Discretionary ligatures
+// ('dlig') remain opt-in, matching their OpenType semantics and avoiding
+// stylistic substitutions such as historical 'st' ligatures in UI text.
 //
 // Default GPOS features: kern.
 func collectDesiredFeatures(userFeatures []FontFeature) (gsubTags, gposTags [][4]byte) {
@@ -295,7 +290,6 @@ func collectDesiredFeatures(userFeatures []FontFeature) (gsubTags, gposTags [][4
 	kern := [4]byte{'k', 'e', 'r', 'n'}
 	clig := [4]byte{'c', 'l', 'i', 'g'}
 	rlig := [4]byte{'r', 'l', 'i', 'g'}
-	dlig := [4]byte{'d', 'l', 'i', 'g'}
 
 	// GSUB defaults.
 	gsubEnabled := map[[4]byte]bool{
@@ -303,7 +297,6 @@ func collectDesiredFeatures(userFeatures []FontFeature) (gsubTags, gposTags [][4
 		liga: true,
 		clig: true,
 		rlig: true,
-		dlig: true,
 	}
 
 	// GPOS defaults.

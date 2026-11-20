@@ -1,8 +1,6 @@
 package gg
 
 import (
-	"fmt"
-	"hash/fnv"
 	"image"
 	"math"
 	"os"
@@ -938,15 +936,10 @@ func (c *Context) ensureGlyphCache() *text.GlyphCache {
 }
 
 // computeTextFontID generates a stable hash identifier for a font source.
-// Uses FNV-1a hash of font name and glyph count as a lightweight fingerprint.
-// Same algorithm as internal/gpu/gpu_text.go:computeFontID.
+// Delegates to text.ComputeFontID which uses FullName to prevent cache
+// collisions between faces in the same family (e.g., Regular vs Bold).
 func computeTextFontID(source *text.FontSource) uint64 {
-	if source == nil {
-		return 0
-	}
-	h := fnv.New64a()
-	_, _ = fmt.Fprintf(h, "%s:%d", source.Name(), source.Parsed().NumGlyphs())
-	return h.Sum64()
+	return text.ComputeFontID(source)
 }
 
 // fontHeight returns the font's natural line height (ascent + descent + line gap).

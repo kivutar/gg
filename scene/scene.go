@@ -776,6 +776,9 @@ type Image struct {
 	// Data holds the pixel data (RGBA format)
 	// This will be populated during integration phase
 	Data []byte
+
+	// upload is the stable GPU buffer for Data. Replay must not mint a new one.
+	upload imageUpload
 }
 
 // NewImage creates a new image with the given dimensions.

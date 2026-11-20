@@ -65,6 +65,7 @@ type Backend struct {
 	ctx    *gg.Context
 	width  int
 	height int
+	scale  float64
 }
 
 // Ensure Backend implements all required interfaces.
@@ -75,19 +76,47 @@ var (
 	_ recording.PixmapBackend = (*Backend)(nil)
 )
 
-// NewBackend creates a new raster backend.
+// NewBackend creates a new raster backend at 1x scale.
 // The backend must be initialized with Begin before use.
 func NewBackend() *Backend {
-	return &Backend{}
+	return &Backend{scale: 1}
+}
+
+// NewBackendWithScale creates a raster backend that renders at the given scale.
+// Scale 2 produces a 2x pixel image (HiDPI/Retina quality).
+// The recording's world-space coordinates are scaled uniformly at playback time,
+// matching Cairo's replay_with_transform and Skia's fInitialCTM composition.
+func NewBackendWithScale(scale float64) *Backend {
+	if scale <= 0 {
+		scale = 1
+	}
+	return &Backend{scale: scale}
 }
 
 // Begin initializes the backend for rendering at the given dimensions.
-// This must be called before any drawing operations.
+// When scale > 1, the pixel buffer is enlarged and a uniform scale transform
+// is applied so world-space coordinates map correctly to physical pixels.
 func (b *Backend) Begin(width, height int) error {
 	b.width = width
 	b.height = height
-	b.ctx = gg.NewContext(width, height)
+	s := b.scale
+	b.ctx = gg.NewContext(int(float64(width)*s), int(float64(height)*s))
+	if s != 1 {
+		b.ctx.Scale(s, s)
+	}
 	return nil
+}
+
+// applyDeviceScale resets the CTM to the device scale transform.
+// This is the raster backend's equivalent of Skia's fInitialCTM — a persistent
+// base transform that maps world-space coordinates to device pixels. All places
+// that previously called ctx.Identity() now call this instead, so the device
+// scale survives across draw operations.
+func (b *Backend) applyDeviceScale() {
+	b.ctx.Identity()
+	if b.scale != 1 {
+		b.ctx.Scale(b.scale, b.scale)
+	}
 }
 
 // End finalizes the rendering.
@@ -107,9 +136,12 @@ func (b *Backend) Restore() {
 }
 
 // SetTransform sets the current transformation matrix.
+// Composes the recorded transform with the device scale (Skia fInitialCTM pattern:
+// canvas.setMatrix(fInitialCTM * r.matrix)). This ensures device scale is
+// preserved when the recording replays transform commands.
 func (b *Backend) SetTransform(m recording.Matrix) {
-	// Convert recording.Matrix to gg.Matrix
-	b.ctx.SetTransform(gg.Matrix{
+	b.applyDeviceScale()
+	b.ctx.Transform(gg.Matrix{
 		A: m.A, B: m.B, C: m.C,
 		D: m.D, E: m.E, F: m.F,
 	})
@@ -121,16 +153,14 @@ func (b *Backend) SetClip(path *gg.Path, rule recording.FillRule) {
 		return
 	}
 
-	// Recording paths are already transformed into world coordinates. Build the
-	// path with an identity user transform so a transform command from the
-	// recording does not transform it a second time.
+	// Recording paths are already in world coordinates. Apply device scale
+	// (not identity) so clip region maps correctly to device pixels.
 	transform := b.ctx.GetTransform()
-	b.ctx.Identity()
+	b.applyDeviceScale()
 	b.ctx.ClearPath()
 	b.setPathFromElements(path)
 	b.ctx.SetFillRule(convertFillRule(rule))
 	b.ctx.Clip()
-	// Keep the backend's current transform unchanged for subsequent commands.
 	b.ctx.SetTransform(transform)
 }
 
@@ -165,10 +195,10 @@ func (b *Backend) StrokePath(path *gg.Path, brush recording.Brush, stroke record
 
 // FillRect fills a rectangle with the brush.
 // The rect coordinates are in world space (already transformed during recording).
+// Device scale maps them to physical pixels.
 func (b *Backend) FillRect(rect recording.Rect, brush recording.Brush) {
 	b.applyBrush(brush, true)
-	// Reset transform since rect is already in world coordinates
-	b.ctx.Identity()
+	b.applyDeviceScale()
 	b.ctx.DrawRectangle(rect.MinX, rect.MinY, rect.Width(), rect.Height())
 	_ = b.ctx.Fill()
 }
@@ -216,15 +246,16 @@ func (b *Backend) DrawImage(img image.Image, src, dst recording.Rect, _ recordin
 }
 
 // DrawText draws text at the given position with the specified font face and brush.
-// Note: Text rendering is not fully implemented in this backend.
-// gg.Context doesn't have SetFontFace with text.Face interface.
-// A full implementation would need font handling integration.
-func (b *Backend) DrawText(_ string, _, _ float64, _ text.Face, brush recording.Brush) {
-	// Apply brush for text color
+// The face carries the font set at recording time; Go GC keeps it alive while the
+// recording holds a reference (analogous to Skia sk_sp<SkTextBlob> / Cairo
+// cairo_scaled_font_reference pattern).
+func (b *Backend) DrawText(s string, x, y float64, face text.Face, brush recording.Brush) {
+	if face == nil || s == "" {
+		return
+	}
 	b.applyBrush(brush, true)
-
-	// TODO: Implement text rendering when gg.Context supports text.Face
-	// For now, we only apply the brush but don't render text
+	b.ctx.SetFont(face)
+	b.ctx.DrawString(s, x, y)
 }
 
 // WriteTo writes the rendered content as PNG to the given writer.
@@ -267,22 +298,12 @@ func (b *Backend) Height() int {
 	return b.height
 }
 
-// setPath sets the path on the context with identity transform.
-// The path is assumed to be already in world coordinates.
+// setPath sets the path on the context with device scale transform.
+// The path is assumed to be already in world coordinates; device scale
+// maps them to physical pixels.
 func (b *Backend) setPath(path *gg.Path) {
-	// Save current transform
-	b.ctx.Push()
-	// Reset transform since path coordinates are already transformed
-	b.ctx.Identity()
-
 	b.ctx.ClearPath()
-	b.setPathFromElements(path)
-
-	// Restore transform for later operations
-	b.ctx.Pop()
-	// But we need to keep the path, so clear and rebuild with identity
-	b.ctx.ClearPath()
-	b.ctx.Identity()
+	b.applyDeviceScale()
 	b.setPathFromElements(path)
 }
 
