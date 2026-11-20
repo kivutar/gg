@@ -1,8 +1,6 @@
 package scene
 
 import (
-	"image"
-
 	"github.com/gogpu/gg"
 	"github.com/gogpu/gg/text"
 )
@@ -270,12 +268,10 @@ func (r *GPUSceneRenderer) resolveImage(scene *Scene, imageIndex uint32, transfo
 		return
 	}
 
-	rgba := &image.RGBA{
-		Pix:    img.Data,
-		Stride: img.Width * 4,
-		Rect:   image.Rect(0, 0, img.Width, img.Height),
+	buf := img.uploadBuf()
+	if buf == nil {
+		return
 	}
-	buf := gg.ImageBufFromImage(rgba)
 
 	dstW := float64(transform.A) * float64(img.Width)
 	dstH := float64(transform.E) * float64(img.Height)
